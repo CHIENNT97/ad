@@ -107,9 +107,46 @@ send_at_commands() {
 # Check for existing Entware/opkg installation, install if not installed
 ensure_entware_installed() {
     remount_rw
+    
+    # === FIX: CREATE WGET WRAPPER FOR OPKG ===
+    # This creates a fake wget that uses curl so opkg works
+    if [ ! -f "/opt/bin/wget" ] && [ ! -f "/usr/bin/wget" ] && [ ! -f "/bin/wget" ]; then
+        echo -e "\e[1;33mwget not found. Creating a compatibility wrapper using curl for opkg...\e[0m"
+        mkdir -p /opt/bin
+        cat > /opt/bin/wget << 'EOF'
+#!/bin/sh
+# Wrapper to make curl look like wget for opkg
+# wget -O filename url -> curl -o filename url
+# wget -q -> ignored/handled
+url=""
+out=""
+
+while [ $# -gt 0 ]; do
+    case "$1" in
+        -O) out="$2"; shift ;;
+        -q) ;; # ignore quiet
+        -*) ;; # ignore other flags
+        *) url="$1" ;;
+    esac
+    shift
+done
+
+if [ -n "$out" ] && [ -n "$url" ]; then
+    curl -L -k -f -o "$out" "$url"
+elif [ -n "$url" ]; then
+    curl -L -k -f -O "$url"
+else
+    echo "Usage: wget [options] url"
+    exit 1
+fi
+EOF
+        chmod +x /opt/bin/wget
+        echo -e "\e[1;32mwget wrapper created successfully.\e[0m"
+    fi
+    # === END FIX ===
+
     if [ ! -f "/opt/bin/opkg" ]; then
         echo -e "\e[1;32mInstalling Entware/OPKG\e[0m"
-        # CHANGED: wget -> curl
         cd /tmp && curl -L -k -o installentware.sh "$GITROOT/installentware.sh" && chmod +x installentware.sh && ./installentware.sh
         if [ "$?" -ne 0 ]; then
             echo -e "\e[1;31mEntware/OPKG installation failed. Please check your internet connection or the repository URL.\e[0m"
@@ -209,6 +246,9 @@ uninstall_entware() {
     # Restore original link to login binary compiled by Quectel
     rm /bin/login
     ln /bin/login.shadow /bin/login
+    
+    # Remove the fake wget we created
+    rm -f /opt/bin/wget
 
     echo -e '\033[32mInfo: Entware/OPKG has been uninstalled successfully.\033[0m'
 }
@@ -778,7 +818,7 @@ echo "                                     @@@@#.                   "
 echo "                                      -@@@@#.                 "
 echo "        :.                               %@@@@: -#            "
 echo "       .+-                                #@@@@%.+@-          "
-echo "       .#- .                               +@@@@# #@-         "
+echo "       ..#- .                               +@@@@# #@-         "
 echo "     -@*@*@%                                @@@@@::@@=        "
 echo ".+%@@@@@@@@@%=.                           =@@@@# #@@- ..     "
 echo "     .@@@@@:                                :@@@@@ =@@@..%=    "
