@@ -61,7 +61,8 @@ WantedBy=multi-user.target
 EOF
 
     systemctl daemon-reload
-    ln -s /lib/systemd/system/start-opt-mount.service /lib/systemd/system/multi-user.target.wants/start-opt-mount.service
+    # Use -sf to force link creation if it exists
+    ln -sf /lib/systemd/system/start-opt-mount.service /lib/systemd/system/multi-user.target.wants/start-opt-mount.service
 }
 
 if [ -n "$PRE_OPKG_PATH" ]; then
@@ -95,6 +96,56 @@ URL=http://bin.entware.net/${ARCH}/installer
 curl -L "$URL/opkg" -o /opt/bin/opkg
 chmod 755 /opt/bin/opkg
 curl -L "$URL/opkg.conf" -o /opt/etc/opkg.conf
+
+# --- FIX: CREATE WGET WRAPPER FOR OPKG ---
+# opkg tries to call 'wget', but this system only has 'curl'.
+# We create a fake wget script that translates args to curl.
+echo -e '\033[32mInfo: Creating wget wrapper using curl for opkg compatibility...\033[0m'
+cat <<EOF > /opt/bin/wget
+#!/bin/sh
+# Minimalist wget wrapper using curl
+# Handles common opkg call: wget -q -O <output> <url>
+
+output=""
+url=""
+
+# Parse arguments
+while [ "\$#" -gt 0 ]; do
+    case "\$1" in
+        -O) 
+            output="\$2"
+            shift 2 
+            ;;
+        -q) 
+            shift 1 
+            ;;
+        -*) 
+            shift 1 
+            ;; # Ignore other flags like --no-check-certificate
+        *) 
+            url="\$1"
+            shift 1 
+            ;;
+    esac
+done
+
+if [ -n "\$output" ] && [ -n "\$url" ]; then
+    # curl options: -f (fail on error), -L (follow redirect), -s (silent), -o (output)
+    exec curl -f -L -s -o "\$output" "\$url"
+else
+    exit 1
+fi
+EOF
+chmod 755 /opt/bin/wget
+
+# Ensure /opt/bin is in PATH so opkg finds our fake wget
+export PATH=/opt/bin:$PATH
+
+# Create symlink in /usr/bin if wget doesn't exist there, just in case opkg uses absolute path
+if [ ! -f /usr/bin/wget ]; then
+    ln -sf /opt/bin/wget /usr/bin/wget
+fi
+# -----------------------------------------
 
 echo -e '\033[32mInfo: Basic packages installation...\033[0m'
 /opt/bin/opkg update
@@ -137,7 +188,8 @@ WantedBy=multi-user.target
 EOF
 
 systemctl daemon-reload
-ln -s /lib/systemd/system/rc.unslung.service /lib/systemd/system/multi-user.target.wants/rc.unslung.service
+# Use -sf to force link creation
+ln -sf /lib/systemd/system/rc.unslung.service /lib/systemd/system/multi-user.target.wants/rc.unslung.service
 systemctl start rc.unslung.service
 echo -e '\033[32mInfo: Congratulations!\033[0m'
 echo -e '\033[32mInfo: If there are no errors above then Entware was successfully initialized.\033[0m'
