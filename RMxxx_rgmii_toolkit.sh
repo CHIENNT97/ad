@@ -1,7 +1,7 @@
 #!/bin/sh
 
 # Define toolkit paths
-export PATH=/bin:/sbin:/usr/bin:/usr/sbin:/opt/bin:/opt/sbin:/usrdata/root/bin
+export PATH=/opt/bin:/opt/sbin:/bin:/sbin:/usr/bin:/usr/sbin:/usrdata/root/bin
 GITUSER="iamromulan"
 REPONAME="quectel-rgmii-toolkit"
 GITTREE="SDXLEMUR"
@@ -23,6 +23,7 @@ TAILSCALE_SYSD_DIR="/usrdata/tailscale/systemd"
 # AT Command Script Variables and Functions
 DEVICE_FILE="/dev/smd7"
 TIMEOUT=4  # Set a timeout for the response
+
 # Function to remount file system as read-write
 remount_rw() {
     mount -o remount,rw /
@@ -110,7 +111,8 @@ ensure_entware_installed() {
     
     # === FIX: CREATE WGET WRAPPER FOR OPKG ===
     # This creates a fake wget that uses curl so opkg works
-    if [ ! -f "/opt/bin/wget" ] && [ ! -f "/usr/bin/wget" ] && [ ! -f "/bin/wget" ]; then
+    # AND symlinks it to where opkg might look
+    if [ ! -f "/opt/bin/wget" ] || [ ! -f "/usr/bin/wget" ] || [ ! -f "/bin/wget" ]; then
         echo -e "\e[1;33mwget not found. Creating a compatibility wrapper using curl for opkg...\e[0m"
         mkdir -p /opt/bin
         cat > /opt/bin/wget << 'EOF'
@@ -141,7 +143,11 @@ else
 fi
 EOF
         chmod +x /opt/bin/wget
-        echo -e "\e[1;32mwget wrapper created successfully.\e[0m"
+        # CRITICAL FIX: Symlink to standard paths so opkg finds it
+        ln -sf /opt/bin/wget /usr/bin/wget 2>/dev/null
+        ln -sf /opt/bin/wget /bin/wget 2>/dev/null
+        
+        echo -e "\e[1;32mwget wrapper created successfully and linked.\e[0m"
     fi
     # === END FIX ===
 
@@ -156,6 +162,10 @@ EOF
     else
         echo -e "\e[1;32mEntware/OPKG is already installed.\e[0m"
         if [ "$(readlink /bin/login)" != "/opt/bin/login" ]; then
+            # Ensure wget is available before updating
+            ln -sf /opt/bin/wget /usr/bin/wget 2>/dev/null
+            ln -sf /opt/bin/wget /bin/wget 2>/dev/null
+            
             opkg update && opkg install shadow-login shadow-passwd shadow-useradd
             if [ "$?" -ne 0 ]; then
                 echo -e "\e[1;31mPackage installation failed. Please check your internet connection and try again.\e[0m"
@@ -170,7 +180,7 @@ EOF
             mkdir -p /usrdata/root/bin
             touch /usrdata/root/.profile
             echo "# Set PATH for all shells" > /usrdata/root/.profile
-            echo "export PATH=/bin:/usr/sbin:/usr/bin:/sbin:/opt/sbin:/opt/bin:/usrdata/root/bin" >> /usrdata/root/.profile
+            echo "export PATH=/opt/bin:/opt/sbin:/bin:/usr/sbin:/usr/bin:/sbin:/usrdata/root/bin" >> /usrdata/root/.profile
             chmod +x /usrdata/root/.profile
             sed -i '1s|/home/root:/bin/sh|/usrdata/root:/bin/bash|' /opt/etc/passwd
             rm /bin/login /usr/bin/passwd
@@ -193,7 +203,7 @@ EOF
             mkdir -p /usrdata/root/bin
             touch /usrdata/root/.profile
             echo "# Set PATH for all shells" > /usrdata/root/.profile
-            echo "export PATH=/bin:/usr/sbin:/usr/bin:/sbin:/opt/sbin:/opt/bin:/usrdata/root/bin" >> /usrdata/root/.profile
+            echo "export PATH=/opt/bin:/opt/sbin:/bin:/usr/sbin:/usr/bin:/sbin:/usrdata/root/bin" >> /usrdata/root/.profile
             chmod +x /usrdata/root/.profile
             sed -i '1s|/home/root:/bin/sh|/usrdata/root:/bin/bash|' /opt/etc/passwd
         fi
@@ -249,6 +259,8 @@ uninstall_entware() {
     
     # Remove the fake wget we created
     rm -f /opt/bin/wget
+    rm -f /usr/bin/wget
+    rm -f /bin/wget
 
     echo -e '\033[32mInfo: Entware/OPKG has been uninstalled successfully.\033[0m'
 }
@@ -347,8 +359,22 @@ configure_simple_firewall() {
 
 set_simpleadmin_passwd(){
     ensure_entware_installed
+    # Double check wget exists
+    if [ ! -f "/bin/wget" ] && [ ! -f "/usr/bin/wget" ]; then
+         ln -sf /opt/bin/wget /usr/bin/wget 2>/dev/null
+         ln -sf /opt/bin/wget /bin/wget 2>/dev/null
+    fi
+    
+    echo -e "\e[1;32mUpdating OPKG lists...\e[0m"
     opkg update
+    
+    echo -e "\e[1;32mInstalling libaprutil...\e[0m"
     opkg install libaprutil
+    if [ "$?" -ne 0 ]; then
+        echo -e "\e[1;31mFailed to install libaprutil. Trying again...\e[0m"
+        opkg update && opkg install libaprutil
+    fi
+
     # CHANGED: wget -> curl
     curl -L -k -o /usrdata/root/bin/htpasswd $GITROOT/simpleadmin/htpasswd && chmod +x /usrdata/root/bin/htpasswd
     curl -L -k -o /usrdata/root/bin/simplepasswd $GITROOT/simpleadmin/simplepasswd && chmod +x /usrdata/root/bin/simplepasswd
@@ -811,65 +837,65 @@ else
 fi
 
 while true; do
-echo "                            .%+:                              "
-echo "                             .*@@@-.                          "
-echo "                                  :@@@@-                      "
-echo "                                     @@@@#.                   "
-echo "                                      -@@@@#.                 "
-echo "        :.                               %@@@@: -#            "
-echo "       .+-                                #@@@@%.+@-          "
-echo "       ..#- .                               +@@@@# #@-         "
-echo "     -@*@*@%                                @@@@@::@@=        "
-echo ".+%@@@@@@@@@%=.                           =@@@@# #@@- ..     "
-echo "     .@@@@@:                                :@@@@@ =@@@..%=    "
-echo "     -::@-.+.                                @@@@@.=@@@- =@-   "
-echo "       .@-                                  .@@@@@:.@@@* @@. "
-echo "       .%-                                  -@@@@@:=@@@@  @@# "
-echo "       .#-         .%@@@@@@#.               +@@@@@.#@@@@  @@@."
-echo "       .*-            .@@@@@@@@@@=.         @@@@@@ @@@@@  @@@:"
-echo "        :.             .%@@@@@@@@@@@%.      .@@@@@+:@@@@@  @@@-"
-echo "                        -@@@@@@@@@@@@@@@..@@@@@@.-@@@@@ .@@@-"
-echo "                         -@@@@@@@@@@%.  .@@@@@@. @@@@@+ =@@@="
-echo "                            =@@@@@@@@* .@@@@@@. @@@@@@..@@@@-"
+echo "                              .%+:                                  "
+echo "                             .*@@@-.                                "
+echo "                                  :@@@@-                            "
+echo "                                     @@@@#.                         "
+echo "                                      -@@@@#.                       "
+echo "        :.                                %@@@@: -#                 "
+echo "       .+-                                 #@@@@%.+@-               "
+echo "       ..#- .                                 +@@@@# #@-            "
+echo "     -@*@*@%                                  @@@@@::@@=            "
+echo ".+%@@@@@@@@@%=.                           =@@@@# #@@- ..            "
+echo "     .@@@@@:                                 :@@@@@ =@@@..%=        "
+echo "     -::@-.+.                                 @@@@@.=@@@- =@-       "
+echo "       .@-                                   .@@@@@:.@@@* @@. "
+echo "       .%-                                   -@@@@@:=@@@@  @@# "
+echo "       .#-         .%@@@@@@#.                +@@@@@.#@@@@  @@@."
+echo "       .*-             .@@@@@@@@@@=.         @@@@@@ @@@@@  @@@:"
+echo "        :.               .%@@@@@@@@@@@%.      .@@@@@+:@@@@@  @@@-"
+echo "                         -@@@@@@@@@@@@@@@..@@@@@@.-@@@@@ .@@@-"
+echo "                          -@@@@@@@@@@%.  .@@@@@@. @@@@@+ =@@@="
+echo "                             =@@@@@@@@* .@@@@@@. @@@@@@..@@@@-"
 echo "                             #@@@@@@@@-*@@@@@%..@@@@@@+ #@@@@-"
 echo "                             @@@@@@:.-@@@@@@.  @@@@@@= %@@@@@."
 echo "                            .@@@@. *@@@@@@- .+@@@@@@-.@@@@@@+ "
 echo "                            %@@. =@@@@@*.  +@@@@@@%.-@@@@@@%  "
-echo "                           .@@ .@@@@@=   :@@@@@@@@..@@@@@@@=   "
-echo "                           =@.+@@@@@. -@@@@@@@*.:@@@@@@@*.     "
-echo "                           %.*@@@@= .@@@@@@@-.:@@@@@@@+.       "
-echo "                           ..@@@@= .@@@@@@: #@@@@@@@:          "
-echo "                            .@@@@  +@@@@..%@@@@@+.             "
-echo "                            .@@@.  @@@@.:@@@@+.                "
-echo "                             @@@.  @@@. @@@* .@.           "
-echo "                             :@@@  %@@..@@#.     *@            "
-echo "                          -*: .@@* :@@. @@.  -..@@             "
-echo "                        =@@@@@@.*@- :@%  @* =@:=@#             "
-echo "                       .@@@-+@@@@:%@..%- ...@%:@@:             "
-echo "                       .@@.  @@-%@:       .%@@*@@%.            "
-echo "                        :@@ :+  *@      *@@#*@@@.              "
-echo "                                       =@@@.@@@@               "
-echo "                                      .*@@@:=@@@@:             "
-echo "                                    .@@@@:.@@@@@:              "
-echo "                                   .@@@@#.-@@@@@.              "
-echo "                                   #@@@@: =@@@@@-              "
-echo "                                 .@@@@@..@@@@@@* "
-echo "                                -@@@@@. @@@@@@#.               "
-echo "                               -@@@@@  @@@@@@%                 "
-echo "                               @@@@@. #@@@@@@.                 "
-echo "                              :@@@@# =@@@@@@%                  "
-echo "                              @@@@@: @@@@@@@:                  "
-echo "                              *@@@@  @@@@@@@.                  "
-echo "                              .@@@@  @@@@@@@                   "
-echo "                               #@@@. @@@@@@* "
-echo "                                @@@# @@@@@@@                   "
-echo "                                 .@@+=@@@@@@.                  "
-echo "                                      *@@@@@@                  "
-echo "                                       :@@@@@=                 "
-echo "                                        .@@@@@@.               "
-echo "                                          :@@@@@*.             "
-echo "                                            .=@@@@@-           "
-echo "                                                 :+##+.        "
+echo "                           .@@ .@@@@@=    :@@@@@@@@..@@@@@@@=   "
+echo "                           =@.+@@@@@. -@@@@@@@*.:@@@@@@@*.      "
+echo "                           %.*@@@@= .@@@@@@@-.:@@@@@@@+.        "
+echo "                           ..@@@@= .@@@@@@: #@@@@@@@:           "
+echo "                            .@@@@  +@@@@..%@@@@@+.              "
+echo "                            .@@@.  @@@@.:@@@@+.                 "
+echo "                             @@@.  @@@. @@@* .@.             "
+echo "                             :@@@  %@@..@@#.      *@             "
+echo "                           -*: .@@* :@@. @@.   -..@@             "
+echo "                         =@@@@@@.*@- :@%  @* =@:=@#              "
+echo "                        .@@@-+@@@@:%@..%- ...@%:@@:              "
+echo "                        .@@.  @@-%@:        .%@@*@@%.            "
+echo "                         :@@ :+  *@       *@@#*@@@.              "
+echo "                                           =@@@.@@@@             "
+echo "                                            .*@@@:=@@@@:         "
+echo "                                          .@@@@:.@@@@@:          "
+echo "                                         .@@@@#.-@@@@@.          "
+echo "                                         #@@@@: =@@@@@-          "
+echo "                                       .@@@@@..@@@@@@* "
+echo "                                      -@@@@@. @@@@@@#.           "
+echo "                                     -@@@@@  @@@@@@%             "
+echo "                                     @@@@@. #@@@@@@.             "
+echo "                                    :@@@@# =@@@@@@%              "
+echo "                                    @@@@@: @@@@@@@:              "
+echo "                                    *@@@@  @@@@@@@.              "
+echo "                                    .@@@@  @@@@@@@               "
+echo "                                     #@@@. @@@@@@* "
+echo "                                      @@@# @@@@@@@               "
+echo "                                       .@@+=@@@@@@.              "
+echo "                                            *@@@@@@              "
+echo "                                             :@@@@@=             "
+echo "                                              .@@@@@@.           "
+echo "                                                :@@@@@*.         "
+echo "                                                  .=@@@@@-       "
+echo "                                                     :+##+.      "
 
     echo -e "\e[92m"
     echo "Welcome to iamromulan's RGMII Toolkit script for Quectel RMxxx Series modems!"
